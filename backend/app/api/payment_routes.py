@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.infrastructure.db import get_db
 from app.application.payment_service import PaymentService
 
-
 router = APIRouter(prefix="/api/payments", tags=["payments"])
 
 
@@ -36,16 +35,16 @@ class PaymentHistoryResponse(BaseModel):
 
 @router.post("/pay", response_model=PaymentResponse)
 async def pay_order(
-    request: PaymentRequest,
-    session: AsyncSession = Depends(get_db)
+        request: PaymentRequest,
+        session: AsyncSession = Depends(get_db)
 ):
     """
     Оплатить заказ.
-    
+
     Параметры:
     - order_id: ID заказа для оплаты
     - mode: "safe" (с блокировками) или "unsafe" (без блокировок)
-    
+
     Возвращает:
     - success: true если оплата прошла успешно
     - message: описание результата
@@ -54,19 +53,19 @@ async def pay_order(
     """
     try:
         service = PaymentService(session)
-        
+
         if request.mode == "safe":
             result = await service.pay_order_safe(request.order_id)
         else:
             result = await service.pay_order_unsafe(request.order_id)
-        
+
         return PaymentResponse(
             success=True,
             message=f"Order paid successfully using {request.mode} mode",
             order_id=request.order_id,
             status=result.get("status", "paid")
         )
-    
+
     except Exception as e:
         return PaymentResponse(
             success=False,
@@ -78,12 +77,12 @@ async def pay_order(
 
 @router.get("/history/{order_id}", response_model=PaymentHistoryResponse)
 async def get_payment_history(
-    order_id: uuid.UUID,
-    session: AsyncSession = Depends(get_db)
+        order_id: uuid.UUID,
+        session: AsyncSession = Depends(get_db)
 ):
     """
     Получить историю оплат для заказа.
-    
+
     Возвращает:
     - order_id: ID заказа
     - payment_count: количество попыток оплаты
@@ -92,48 +91,48 @@ async def get_payment_history(
     try:
         service = PaymentService(session)
         history = await service.get_payment_history(order_id)
-        
+
         return PaymentHistoryResponse(
             order_id=order_id,
             payment_count=len(history),
             payments=history
         )
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/test-concurrent")
 async def test_concurrent_payment(
-    request: PaymentRequest,
-    session: AsyncSession = Depends(get_db)
+        request: PaymentRequest,
+        session: AsyncSession = Depends(get_db)
 ):
     """
     ДЕМОНСТРАЦИОННЫЙ endpoint
-    
+
     ⚠️ Этот endpoint СПЕЦИАЛЬНО создан для демонстрации race condition!
     В реальном приложении такого быть не должно.
-    
+
     Параметры:
     - order_id: ID заказа
     - mode: "safe" или "unsafe"
-    
+
     Возвращает результаты обеих попыток оплаты.
     """
     import asyncio
     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession as AS
     from sqlalchemy.orm import sessionmaker
-    
+
     # Получить DATABASE_URL из настроек
     from app.infrastructure.db import DATABASE_URL
-    
+
     # Создать два независимых соединения
     engine1 = create_async_engine(DATABASE_URL)
     engine2 = create_async_engine(DATABASE_URL)
-    
+
     SessionLocal1 = sessionmaker(engine1, class_=AS, expire_on_commit=False)
     SessionLocal2 = sessionmaker(engine2, class_=AS, expire_on_commit=False)
-    
+
     async def attempt_payment_1():
         """Первая попытка оплаты."""
         async with SessionLocal1() as session1:
@@ -146,7 +145,7 @@ async def test_concurrent_payment(
                 return {"success": True, "result": result, "attempt": 1}
             except Exception as e:
                 return {"success": False, "error": str(e), "attempt": 1}
-    
+
     async def attempt_payment_2():
         """Вторая попытка оплаты."""
         async with SessionLocal2() as session2:
@@ -159,26 +158,26 @@ async def test_concurrent_payment(
                 return {"success": True, "result": result, "attempt": 2}
             except Exception as e:
                 return {"success": False, "error": str(e), "attempt": 2}
-    
+
     # Запустить две попытки ПАРАЛЛЕЛЬНО
     results = await asyncio.gather(
         attempt_payment_1(),
         attempt_payment_2(),
         return_exceptions=True
     )
-    
+
     # Закрыть engines
     await engine1.dispose()
     await engine2.dispose()
-    
+
     # Получить историю оплат
     service = PaymentService(session)
     history = await service.get_payment_history(request.order_id)
-    
+
     # Подсчитать успешные и неудачные попытки
     success_count = sum(1 for r in results if isinstance(r, dict) and r.get("success"))
     error_count = sum(1 for r in results if isinstance(r, dict) and not r.get("success"))
-    
+
     return {
         "mode": request.mode,
         "order_id": str(request.order_id),
@@ -192,8 +191,8 @@ async def test_concurrent_payment(
         },
         "history": history,
         "explanation": (
-            f"⚠️ RACE CONDITION! Order was paid {len(history)} times!" 
-            if len(history) > 1 
+            f"⚠️ RACE CONDITION! Order was paid {len(history)} times!"
+            if len(history) > 1
             else f"✅ No race condition. Order was paid {len(history)} time(s)."
         )
     }
